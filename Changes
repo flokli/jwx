@@ -4,6 +4,13 @@ Changes
 v2 has many incompatibilities with v1. To see the full list of differences between
 v1 and v2, please read the Changes-v2.md file (https://github.com/lestrrat-go/jwx/blob/develop/v2/Changes-v2.md)
 
+v2.1.0 UNRELEASED
+[Breaking Changes]
+  * [jwk] jwk.SetGlobalFetcher now takes jwk.Fetcher instead of httprc.Fetcher. You can no longer
+    use a httprc.Fetcher object to pass to jwk.SetGlobalFetcher. Use jwk.HTTPRCFetcher to wrap
+    httprc.Fetcher, if you want to customize your httprc.Fetcher object.
+    The details of HTTPRCFetcher and SetGlobalFetcher should be considered experimental, and
+
 v2.0.18 03 Dec 2023
 [Security Fixes]
   * [jwe] A large number in p2c parameter for PBKDF2 based encryptions could cause a DoS attack,

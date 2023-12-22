@@ -23,7 +23,7 @@ func (f FetchFunc) Fetch(ctx context.Context, u string, options ...FetchOption) 
 	return f(ctx, u, options...)
 }
 
-var globalFetcher httprc.Fetcher
+var globalFetcher Fetcher
 var muGlobalFetcher sync.Mutex
 var fetcherChanged uint32
 
@@ -31,7 +31,7 @@ func init() {
 	atomic.StoreUint32(&fetcherChanged, 1)
 }
 
-func getGlobalFetcher() httprc.Fetcher {
+func getGlobalFetcher() Fetcher {
 	if v := atomic.LoadUint32(&fetcherChanged); v == 0 {
 		return globalFetcher
 	}
@@ -52,7 +52,7 @@ func getGlobalFetcher() httprc.Fetcher {
 			nworkers = 3
 		}
 
-		globalFetcher = httprc.NewFetcher(context.Background(), httprc.WithFetcherWorkerCount(nworkers))
+		globalFetcher = &HTTPRCFetcher{httprc.NewFetcher(context.Background(), httprc.WithFetcherWorkerCount(nworkers))}
 	}
 
 	atomic.StoreUint32(&fetcherChanged, 0)
@@ -78,11 +78,49 @@ func getGlobalFetcher() httprc.Fetcher {
 //
 // If you are sure you no longer need `jwk.Fetch` after terminating the
 // fetcher, then you the above caution is not necessary.
-func SetGlobalFetcher(f httprc.Fetcher) {
+func SetGlobalFetcher(f Fetcher) {
 	muGlobalFetcher.Lock()
 	globalFetcher = f
 	muGlobalFetcher.Unlock()
 	atomic.StoreUint32(&fetcherChanged, 1)
+}
+
+// HTTPRCFetcher is a thin wrapper around httprc.Fetcher that decouples the
+// httprc.Fetcher implementation from the jwk package. This is used to
+// implement the default fetcher.
+type HTTPRCFetcher struct {
+	Fetcher httprc.Fetcher
+}
+
+func (f *HTTPRCFetcher) Fetch(ctx context.Context, u string, options ...FetchOption) (Set, error) {
+	var parseOptions []ParseOption
+	var hrfopts []httprc.FetchOption
+	for _, option := range options {
+		if parseOpt, ok := option.(ParseOption); ok {
+			parseOptions = append(parseOptions, parseOpt)
+			continue
+		}
+		//nolint:forcetypeassert
+		switch option.Ident() {
+		case identHTTPClient{}:
+			hrfopts = append(hrfopts, httprc.WithHTTPClient(option.Value().(HTTPClient)))
+		case identFetchWhitelist{}:
+			hrfopts = append(hrfopts, httprc.WithWhitelist(option.Value().(httprc.Whitelist)))
+		}
+	}
+
+	res, err := f.Fetcher.Fetch(ctx, u, hrfopts...)
+	if err != nil {
+		return nil, fmt.Errorf(`default fetcher: failed to fetch %q: %w`, u, err)
+	}
+
+	buf, err := io.ReadAll(res.Body)
+	defer res.Body.Close()
+	if err != nil {
+		return nil, fmt.Errorf(`default fetcher: failed to read response body for %q: %w`, u, err)
+	}
+
+	return Parse(buf, parseOptions...)
 }
 
 // Fetch fetches a JWK resource specified by a URL. The url must be
@@ -102,33 +140,5 @@ func SetGlobalFetcher(f httprc.Fetcher) {
 // call `jwk.SetGlobalFetcher` with a custom fetcher which is tied to
 // a `context.Context` object that you can control.
 func Fetch(ctx context.Context, u string, options ...FetchOption) (Set, error) {
-	var hrfopts []httprc.FetchOption
-	var parseOptions []ParseOption
-	for _, option := range options {
-		if parseOpt, ok := option.(ParseOption); ok {
-			parseOptions = append(parseOptions, parseOpt)
-			continue
-		}
-
-		//nolint:forcetypeassert
-		switch option.Ident() {
-		case identHTTPClient{}:
-			hrfopts = append(hrfopts, httprc.WithHTTPClient(option.Value().(HTTPClient)))
-		case identFetchWhitelist{}:
-			hrfopts = append(hrfopts, httprc.WithWhitelist(option.Value().(httprc.Whitelist)))
-		}
-	}
-
-	res, err := getGlobalFetcher().Fetch(ctx, u, hrfopts...)
-	if err != nil {
-		return nil, fmt.Errorf(`failed to fetch %q: %w`, u, err)
-	}
-
-	buf, err := io.ReadAll(res.Body)
-	defer res.Body.Close()
-	if err != nil {
-		return nil, fmt.Errorf(`failed to read response body for %q: %w`, u, err)
-	}
-
-	return Parse(buf, parseOptions...)
+	return getGlobalFetcher().Fetch(ctx, u, options...)
 }

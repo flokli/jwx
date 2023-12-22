@@ -2180,7 +2180,7 @@ func TestECDSAPEM(t *testing.T) {
 //	  ctx, cancel := context.WithCancel(context.Background())
 //	  defer cancel()
 //
-//	  jwk.SetGlobalFetcher(http.NewFetcher(ctx))
+//	  jwk.SetGlobalFetcher(&HTTPRCFetcher{http.NewFetcher(ctx)})
 //	  // your app code goes here
 //	}
 //
@@ -2194,7 +2194,7 @@ func TestECDSAPEM(t *testing.T) {
 /*
 func TestGH928(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	jwk.SetGlobalFetcher(httprc.NewFetcher(ctx))
+	jwk.SetGlobalFetcher(&jwk.HTTPRCFetcher{httprc.NewFetcher(ctx)})
 
 	// If you are using a custom fetcher like this in your test and you
 	// still have more tests to run, you probably want to include the
@@ -2205,9 +2205,24 @@ func TestGH928(t *testing.T) {
 	cancel() // stop fetcher goroutines
 
 	// At this point, not goroutines from httprc.Fetcher should be running
+	// (except, within this test, we have already started goroutines that can't
+	// be properly terminated, and thus the above cancel is not enough to
+	// stop from the following goleak line from failing)
 	goleak.VerifyNone(t)
 }
 */
+
+type DummyFetcher struct{}
+
+func (f *DummyFetcher) Fetch(ctx context.Context, url string, options ...jwk.FetchOption) (jwk.Set, error) {
+	return nil, fmt.Errorf("dummy fetcher")
+}
+
+func TestGH1047(t *testing.T) {
+	// NOTE: has global effect! Do NOT run in parallel!
+	jwk.SetGlobalFetcher(&DummyFetcher{})
+	defer jwk.SetGlobalFetcher(nil)
+}
 
 func TestGH947(t *testing.T) {
 	// AS OP described it. Below case will panic if the problem exists,

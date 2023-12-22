@@ -178,12 +178,16 @@ func WithFS(v fs.FS) ReadFileOption {
 // WithFetchWhitelist specifies the Whitelist object to use when
 // fetching JWKs from a remote source. This option can be passed
 // to both `jwk.Fetch()`, `jwk.NewCache()`, and `(*jwk.Cache).Configure()`
+//
+// Internally maps to httprc.WithWhitelist.
 func WithFetchWhitelist(v Whitelist) FetchOption {
 	return &fetchOption{option.New(identFetchWhitelist{}, v)}
 }
 
 // WithHTTPClient allows users to specify the "net/http".Client object that
 // is used when fetching jwk.Set objects.
+//
+// Internally maps to httprc.WithHTTPClient.
 func WithHTTPClient(v HTTPClient) FetchOption {
 	return &fetchOption{option.New(identHTTPClient{}, v)}
 }
